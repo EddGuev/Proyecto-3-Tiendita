@@ -1,4 +1,5 @@
 from locust import HttpUser, task, between
+import random
 
 
 class UsuarioTiendaCompleta(HttpUser):
@@ -6,17 +7,36 @@ class UsuarioTiendaCompleta(HttpUser):
 
     @task(3)
     def comprarProducto(self):
-        # El experimento se centra en el producto 3 porque inicia con stock=1
+        # El producto 3 empieza con stock=1, así se ve si el lock evita vender de más
         with self.client.post("/productos/3", json={"producto_id": 3}, catch_response=True) as respuesta:
-            if respuesta.status_code == 200:
+            if respuesta.status_code in (200, 400):
+                # 400 = ya no hay stock, también cuenta como respuesta correcta
                 respuesta.success()
-            elif respuesta.status_code == 400:
-                # Sin stock también es un resultado válido en la simulación
+            else:
+                respuesta.failure(f"Código inesperado: {respuesta.status_code}")
+
+    @task(2)
+    def comprarOtroProducto(self):
+        producto_id = random.randint(1, 6)
+        with self.client.post(f"/productos/{producto_id}", name="/productos/[id]", catch_response=True) as respuesta:
+            if respuesta.status_code in (200, 400):
                 respuesta.success()
             else:
                 respuesta.failure(f"Código inesperado: {respuesta.status_code}")
 
     @task(1)
     def getProducto(self):
-        # Lectura del catálogo para mezclar tráfico de escritura y consulta
         self.client.get("/productos")
+
+    # Estas tres son las que pide el dashboard cada vez que se hace una compra
+    @task(1)
+    def verKpis(self):
+        self.client.get("/dashboard/kpis")
+
+    @task(1)
+    def verVentasPorProducto(self):
+        self.client.get("/dashboard/ventas-por-producto")
+
+    @task(1)
+    def verVentasPorTiempo(self):
+        self.client.get("/dashboard/ventas-por-tiempo")
