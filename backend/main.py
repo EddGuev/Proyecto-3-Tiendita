@@ -36,7 +36,7 @@ RUTA_PRODUCTOS = CARPETA / "productos.csv"
 RUTA_VENTAS = CARPETA / "ventas.csv"
 
 COLUMNAS_PRODUCTOS = ["id", "nombre", "precio", "cantidad"]
-COLUMNAS_VENTAS = ["id_venta", "producto_id", "nombre", "precio", "timestamp"]
+COLUMNAS_VENTAS = ["id_venta", "producto_id", "nombre", "precio", "cantidad", "total", "timestamp"]
 
 
 #Modelos de Pydantic
@@ -53,6 +53,11 @@ class respuestaProducto(BaseModel):
     nombre: str
     precio: float
     cantidad: int
+
+
+#Cuerpo opcional de la compra, si no se manda nada se compra una pieza
+class compraProducto(BaseModel):
+    cantidad: int = Field(1, ge=1, description="Piezas a comprar")
 
 
 # ---------- Funciones de apoyo para los CSV ----------
@@ -182,7 +187,8 @@ async def deleteProducto(producto_id: int):
 
 #POST Compra un producto: descuenta stock y registra la venta en ventas.csv
 @app.post("/productos/{producto_id}")
-async def comprarProducto(producto_id: int):
+async def comprarProducto(producto_id: int, compra: compraProducto | None = None):
+    piezas = compra.cantidad if compra else 1
     try:
         # Sección crítica: leer, validar, descontar y guardar tiene que pasar de un jalón
         async with lock:
@@ -196,24 +202,33 @@ async def comprarProducto(producto_id: int):
                 )
 
             i = indice[0]
-            if df.at[i, "cantidad"] <= 0:
+            stock = int(df.at[i, "cantidad"])
+            if stock <= 0:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="No hay stock de ese producto"
                 )
+            if piezas > stock:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Solo quedan {stock} piezas de ese producto"
+                )
 
             await asyncio.sleep(0.05)  # Simula latencia de una operación real
-            df.at[i, "cantidad"] = int(df.at[i, "cantidad"]) - 1
+            df.at[i, "cantidad"] = stock - piezas
             guardarProductos(df)
 
             # Registro de la venta
             ventas = leerVentas()
             nuevo_id_venta = int(ventas["id_venta"].max()) + 1 if not ventas.empty else 1
+            precio = float(df.at[i, "precio"])
             venta = {
                 "id_venta": nuevo_id_venta,
                 "producto_id": int(producto_id),
                 "nombre": str(df.at[i, "nombre"]),
-                "precio": float(df.at[i, "precio"]),
+                "precio": precio,
+                "cantidad": piezas,
+                "total": round(precio * piezas, 2),
                 "timestamp": datetime.now().isoformat(timespec="seconds")
             }
             nueva_fila = pd.DataFrame([venta])
@@ -240,15 +255,18 @@ def getKpis():
     try:
         ventas = leerVentas()
         if ventas.empty:
-            return {"total_transacciones": 0, "ingresos_totales": 0.0, "producto_estrella": "Sin ventas"}
+            return {"total_transacciones": 0, "ingresos_totales": 0.0,
+                    "ticket_promedio": 0.0, "producto_estrella": "Sin ventas"}
 
         total_transacciones = int(len(ventas))
-        ingresos_totales = round(float(ventas["precio"].astype(float).sum()), 2)
-        producto_estrella = str(ventas["nombre"].value_counts().idxmax())
+        ingresos_totales = round(float(ventas["total"].sum()), 2)
+        # El producto estrella se calcula por piezas vendidas, no por número de tickets
+        producto_estrella = str(ventas.groupby("nombre")["cantidad"].sum().idxmax())
 
         return {
             "total_transacciones": total_transacciones,
             "ingresos_totales": ingresos_totales,
+            "ticket_promedio": round(ingresos_totales / total_transacciones, 2),
             "producto_estrella": producto_estrella
         }
     except Exception as error:
@@ -265,16 +283,15 @@ def getVentasPorProducto():
         ventas = leerVentas()
         if ventas.empty:
             return []
-        conteo = (
+        resumen = (
             ventas.groupby("nombre")
-            .size()
-            .reset_index(name="cantidad_vendida")
+            .agg(cantidad_vendida=("cantidad", "sum"), ingresos=("total", "sum"))
+            .reset_index()
             .sort_values("cantidad_vendida", ascending=False)
         )
-        return [
-            {"nombre": str(fila["nombre"]), "cantidad_vendida": int(fila["cantidad_vendida"])}
-            for _, fila in conteo.iterrows()
-        ]
+        resumen["cantidad_vendida"] = resumen["cantidad_vendida"].astype(int)
+        resumen["ingresos"] = resumen["ingresos"].round(2)
+        return resumen.to_dict(orient="records")
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -292,11 +309,16 @@ def getVentasPorTiempo():
         ventas["timestamp"] = pd.to_datetime(ventas["timestamp"])
         # Se redondea cada venta a su hora para poder agruparlas
         ventas["hora"] = ventas["timestamp"].dt.floor("h")
-        por_hora = ventas.groupby("hora").size().reset_index(name="cantidad").sort_values("hora")
-        return [
-            {"hora": fila["hora"].strftime("%Y-%m-%d %H:00"), "cantidad": int(fila["cantidad"])}
-            for _, fila in por_hora.iterrows()
-        ]
+        por_hora = (
+            ventas.groupby("hora")
+            .agg(cantidad=("cantidad", "sum"), ingresos=("total", "sum"))
+            .reset_index()
+            .sort_values("hora")
+        )
+        por_hora["hora"] = por_hora["hora"].dt.strftime("%Y-%m-%d %H:00")
+        por_hora["cantidad"] = por_hora["cantidad"].astype(int)
+        por_hora["ingresos"] = por_hora["ingresos"].round(2)
+        return por_hora.to_dict(orient="records")
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

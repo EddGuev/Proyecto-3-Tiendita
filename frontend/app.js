@@ -7,6 +7,7 @@ const totalProductos = document.getElementById("totalProductos");
 const kpiTransacciones = document.getElementById("kpiTransacciones");
 const kpiIngresos = document.getElementById("kpiIngresos");
 const kpiEstrella = document.getElementById("kpiEstrella");
+const kpiTicket = document.getElementById("kpiTicket");
 
 // Guardamos las instancias de las gráficas para poder destruirlas antes de redibujar
 let graficaBarras = null;
@@ -51,9 +52,12 @@ async function cargarProductos() {
                     </span>
                 </td>
                 <td>
-                    <button class="btn btn-tienda btn-sm" onclick="comprarProducto(${p.id})" ${p.cantidad === 0 ? "disabled" : ""}>
-                        Comprar
-                    </button>
+                    <div class="input-group input-group-sm" style="width: 130px;">
+                        <input type="number" class="form-control" id="piezas-${p.id}" value="1" min="1" max="${p.cantidad}" ${p.cantidad === 0 ? "disabled" : ""}>
+                        <button class="btn btn-tienda" onclick="comprarProducto(${p.id})" ${p.cantidad === 0 ? "disabled" : ""}>
+                            Comprar
+                        </button>
+                    </div>
                 </td>
                 <td>
                     <button class="btn btn-outline-danger btn-sm" onclick="eliminarProducto(${p.id})">
@@ -116,8 +120,13 @@ async function eliminarProducto(id_producto) {
 
 // 4. Comprar producto (POST /productos/{id})
 async function comprarProducto(id_producto) {
+    const cantidad = parseInt(document.getElementById(`piezas-${id_producto}`).value) || 1;
     try {
-        const respuesta = await fetch(`${API_URL}/productos/${id_producto}`, { method: "POST" });
+        const respuesta = await fetch(`${API_URL}/productos/${id_producto}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cantidad })
+        });
 
         if (respuesta.ok) {
             // Después de comprar se refresca todo: tabla, KPIs y gráficas
@@ -151,6 +160,7 @@ async function cargarKpis() {
 
         kpiTransacciones.textContent = kpis.total_transacciones;
         kpiIngresos.textContent = `$${kpis.ingresos_totales.toFixed(2)}`;
+        kpiTicket.textContent = `$${kpis.ticket_promedio.toFixed(2)}`;
         kpiEstrella.textContent = kpis.producto_estrella;
     } catch (error) {
         console.error("Error al cargar KPIs:", error);
@@ -211,7 +221,7 @@ async function cargarGraficaLinea() {
             data: {
                 labels: datos.map(d => d.hora),
                 datasets: [{
-                    label: "Ventas por hora",
+                    label: "Piezas vendidas",
                     data: datos.map(d => d.cantidad),
                     borderColor: COLOR_SECUNDARIO,
                     backgroundColor: "rgba(15, 118, 110, 0.15)",

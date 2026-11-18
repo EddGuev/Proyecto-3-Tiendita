@@ -1,1 +1,1 @@
-id_venta,producto_id,nombre,precio,timestamp
+id_venta,producto_id,nombre,precio,cantidad,total,timestamp

@@ -9,7 +9,7 @@ Proyecto-3-Tiendita/
 ├── backend/
 │   ├── main.py          # API con FastAPI, lectura/escritura de CSV con Pandas
 │   ├── productos.csv    # Inventario (id, nombre, precio, cantidad)
-│   └── ventas.csv       # Registro de ventas (id_venta, producto_id, nombre, precio, timestamp)
+│   └── ventas.csv       # Registro de ventas (id_venta, producto_id, nombre, precio, cantidad, total, timestamp)
 ├── frontend/
 │   ├── index.html       # Dashboard + catálogo con Bootstrap y Chart.js
 │   └── app.js           # Consumo de la API con fetch y armado de gráficas
@@ -69,12 +69,12 @@ Interfaz en http://127.0.0.1:8089
 | GET    | `/productos/{id}`                | Regresa un producto por ID |
 | POST   | `/productos`                     | Agrega un producto nuevo al CSV (201) |
 | DELETE | `/productos/{id}`                | Elimina el producto del CSV |
-| POST   | `/productos/{id}`                | Compra una unidad: descuenta stock y registra la venta |
-| GET    | `/dashboard/kpis`                | Total de transacciones, ingresos totales y producto estrella |
-| GET    | `/dashboard/ventas-por-producto` | Unidades vendidas por producto (gráfica de barras) |
-| GET    | `/dashboard/ventas-por-tiempo`   | Ventas agrupadas por hora (gráfica de línea) |
+| POST   | `/productos/{id}`                | Compra piezas de un producto: descuenta stock y registra la venta |
+| GET    | `/dashboard/kpis`                | Transacciones, ingresos totales, ticket promedio y producto estrella |
+| GET    | `/dashboard/ventas-por-producto` | Piezas e ingresos por producto (gráfica de barras) |
+| GET    | `/dashboard/ventas-por-tiempo`   | Piezas e ingresos agrupados por hora (gráfica de línea) |
 
-Si el producto no existe se regresa 404, y si ya no hay stock se regresa 400.
+Para comprar se puede mandar `{"cantidad": 3}` en el body; si no se manda nada se compra una pieza. Si el producto no existe se regresa 404, y si no alcanza el stock se regresa 400.
 
 ## Concurrencia
 
