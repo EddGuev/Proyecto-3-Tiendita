@@ -1,20 +1,22 @@
-# Proyecto 2 — Simulador de Venta Relámpago (FastAPI & Locust)
+# Proyecto 3 — Tiendita Ed (FastAPI, Pandas y Dashboard)
 
-Gestión de transacciones concurrentes, resolución de condiciones de carrera con `asyncio.Lock()` y pruebas de estrés con Locust.
+Continuación del Proyecto 2. La tiendita ya no guarda el inventario en memoria: ahora los productos y las ventas se guardan en archivos CSV que se leen y escriben con Pandas, así que los datos no se pierden al reiniciar la API. Cada compra queda registrada en `ventas.csv` y con eso se arma un dashboard en el frontend con Chart.js.
 
 ## Estructura
 
 ```
-Proyecto-2-Tiendita/
+Proyecto-3-Tiendita/
 ├── backend/
-│   └── main.py          # API con FastAPI y lógica del inventario
+│   ├── main.py          # API con FastAPI, lectura/escritura de CSV con Pandas
+│   ├── productos.csv    # Inventario (id, nombre, precio, cantidad)
+│   └── ventas.csv       # Registro de ventas (id_venta, producto_id, nombre, precio, timestamp)
 ├── frontend/
-│   ├── index.html       # Interfaz del cliente
-│   └── app.js           # Consumo de la API con fetch
-└── locust.py            # Escenario de carga para la venta relámpago
+│   ├── index.html       # Dashboard + catálogo con Bootstrap y Chart.js
+│   └── app.js           # Consumo de la API con fetch y armado de gráficas
+└── locust.py            # Prueba de carga sobre la compra del producto 3
 ```
 
-## Inventario (simulación en memoria)
+## Inventario inicial
 
 | ID | Producto        | Precio | Stock |
 |----|-----------------|--------|-------|
@@ -25,48 +27,61 @@ Proyecto-2-Tiendita/
 | 5  | Agua Mineral    | 10     | 50    |
 | 6  | Pan Blanco      | 15     | 12    |
 
-## Endpoints
+El producto 3 se dejó con stock 1 para seguir probando la venta relámpago con Locust.
 
-| Método | Ruta                       | Descripción |
-|--------|----------------------------|-------------|
-| GET    | `/productos`               | Consulta catálogo completo |
-| GET    | `/productos/{producto_id}` | Consulta un producto por ID |
-| POST   | `/productos`               | Crea producto (201) |
-| POST   | `/productos/{producto_id}` | Venta relámpago: descuenta una unidad |
-| DELETE | `/productos/{producto_id}` | Elimina producto |
-| GET    | `/prueba-asyncio`          | Espera asíncrona de 5 segundos |
-| GET    | `/prueba-asyncio-3segundos`| Espera asíncrona de 3 segundos |
-| GET    | `/prueba-asyncio-1segundo` | Espera asíncrona de 1 segundo |
+## Cómo correrlo
 
-## Cómo ejecutar
-
-### API (puerto 8000)
+### Backend (puerto 8000)
 
 ```bash
 cd backend
-pip install fastapi uvicorn
+pip install fastapi uvicorn pandas
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Cliente (puerto 3000)
+La documentación automática queda en http://127.0.0.1:8000/docs
+
+### Frontend
+
+Se puede abrir `frontend/index.html` directo en el navegador o con Live Server en VS Code. También funciona con el servidor de Python:
 
 ```bash
 cd frontend
 python -m http.server 3000 --bind 127.0.0.1
 ```
 
-Abrir http://127.0.0.1:3000
+y luego entrar a http://127.0.0.1:3000. El frontend apunta a `http://127.0.0.1:8000`, así que la API tiene que estar levantada antes.
 
-### Pruebas de carga con Locust
+### Locust
 
 ```bash
 pip install locust
 locust -f locust.py --host http://127.0.0.1:8000
 ```
 
-Interfaz web en http://127.0.0.1:8089
+Interfaz en http://127.0.0.1:8089
 
-## Experimentos de carga
+## Endpoints
 
-- **Escenario A (sin lock):** comentar temporalmente `async with lock:` dentro de `comprarProducto`, reiniciar la API y correr Locust con 100 usuarios durante 20 segundos. En este caso se observa sobreventa y el stock puede terminar en negativo.
-- **Escenario B (con lock):** restaurar `async with lock:`, reiniciar la API y repetir la misma carga. Con el candado activo, el stock del producto 3 se detiene en 0 y solo la primera compra resulta exitosa.
+| Método | Ruta                             | Qué hace |
+|--------|----------------------------------|----------|
+| GET    | `/productos`                     | Regresa todo el inventario |
+| GET    | `/productos/{id}`                | Regresa un producto por ID |
+| POST   | `/productos`                     | Agrega un producto nuevo al CSV (201) |
+| DELETE | `/productos/{id}`                | Elimina el producto del CSV |
+| POST   | `/productos/{id}`                | Compra una unidad: descuenta stock y registra la venta |
+| GET    | `/dashboard/kpis`                | Total de transacciones, ingresos totales y producto estrella |
+| GET    | `/dashboard/ventas-por-producto` | Unidades vendidas por producto (gráfica de barras) |
+| GET    | `/dashboard/ventas-por-tiempo`   | Ventas agrupadas por hora (gráfica de línea) |
+
+Si el producto no existe se regresa 404, y si ya no hay stock se regresa 400.
+
+## Concurrencia
+
+Al comprar, la API tiene que leer el CSV, revisar el stock, descontar, guardar y registrar la venta. Si dos peticiones hacen eso al mismo tiempo, las dos pueden leer el mismo stock y se vende de más (condición de carrera). Para evitarlo todo ese bloque está dentro de un `asyncio.Lock()`, igual que en el Proyecto 2. Agregar y eliminar productos también usan el lock porque reescriben el mismo archivo.
+
+Con Locust se puede comprobar: aunque lleguen muchas compras al producto 3, solo una sale bien y el stock se queda en 0.
+
+## Autor
+
+Jorge Edwin Guevara Ayala — Programación 4, Proyecto 3.
